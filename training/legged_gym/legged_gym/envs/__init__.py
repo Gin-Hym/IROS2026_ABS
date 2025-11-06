@@ -61,7 +61,7 @@ task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() 
 task_registry.register( "go1_rough", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
 task_registry.register( "go1_pos_rough", LeggedRobotPos, Go1PosRoughCfg(), Go1PosRoughCfgPPO())
 task_registry.register( "go1_rec_rough", LeggedRobotRec, Go1RecRoughCfg(), Go1RecRoughCfgPPO())
-task_registry.register( "go1_push_box_rough", LeggedRobotRec, Go1RecRoughCfg(), Go1RecRoughCfgPPO())
+task_registry.register( "go1_push_box_rough", Go1RobotPushBox, Go1PushBoxCfg(), Go1PushRoughCfgPPO())
 
 ## PPO Lagrangian
 task_registry.register( "go1_pos_rough_ppo_lagrangian", LeggedRobotPos, Go1PosRoughCfgNoPenalty(), Go1PosRoughCfgPPOLagrangian())
