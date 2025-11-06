@@ -44,6 +44,9 @@ from .go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO, Go1RoughCfgNoPenalty, G
 from .go1.go1_pos_config import Go1PosRoughCfg, Go1PosRoughCfgPPO, Go1PosRoughCfgNoPenalty, Go1PosRoughCfgPPOLagrangian
 from .go1.go1_rec_config import Go1RecRoughCfg, Go1RecRoughCfgPPO
 
+from .go1.go1_box_pos import Go1RobotPushBox
+from .go1.go1_push_config import Go1PushBoxCfg, Go1PushRoughCfgPPO
+
 import os
 
 from legged_gym.utils.task_registry import task_registry
@@ -58,6 +61,7 @@ task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() 
 task_registry.register( "go1_rough", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
 task_registry.register( "go1_pos_rough", LeggedRobotPos, Go1PosRoughCfg(), Go1PosRoughCfgPPO())
 task_registry.register( "go1_rec_rough", LeggedRobotRec, Go1RecRoughCfg(), Go1RecRoughCfgPPO())
+task_registry.register( "go1_push_box_rough", LeggedRobotRec, Go1RecRoughCfg(), Go1RecRoughCfgPPO())
 
 ## PPO Lagrangian
 task_registry.register( "go1_pos_rough_ppo_lagrangian", LeggedRobotPos, Go1PosRoughCfgNoPenalty(), Go1PosRoughCfgPPOLagrangian())
