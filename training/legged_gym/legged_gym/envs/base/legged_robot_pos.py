@@ -43,7 +43,7 @@ from legged_gym.envs import LeggedRobot
 from legged_gym import LEGGED_GYM_ROOT_DIR, envs
 # from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.terrain import Terrain
-from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float, yaw_quat, circle_ray_query
+from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float, yaw_quat, circle_ray_query ,box_ray_query
 # from legged_gym.utils.helpers import class_to_dict
 # from .legged_robot_config import LeggedRobotCfg
 from .legged_robot_pos_config import LeggedRobotPosCfg
@@ -139,12 +139,66 @@ class LeggedRobotPos(LeggedRobot):
         if self.cfg.domain_rand.push_robots and  (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
             self._push_robots()
 
+    # def check_termination(self):
+    #     """ Check if environments need to be reset
+    #     """
+    #     self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
+    #     self.time_out_buf = (self.timer_left <= 0) # no terminal reward for time-outs
+    #     self.reset_buf |= self.time_out_buf
+
     def check_termination(self):
         """ Check if environments need to be reset
+        修改版：如果是被 Box 撞到的（距离 Box 很近），则豁免，不重置。
         """
-        self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
-        self.time_out_buf = (self.timer_left <= 0) # no terminal reward for time-outs
+        # 1. 基础碰撞检测（原始逻辑）
+        # 检测 Base 是否受到撞击 (>1.0)
+        contacts = torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1)
+        contact_reset = torch.any(contacts > 1., dim=1)
+        
+        # 2. 【新增逻辑】箱子豁免机制
+        if self.cfg.asset.load_dynamic_object:
+            # 创建一个掩码，默认全为False
+            is_touching_box = torch.zeros_like(contact_reset, dtype=torch.bool)
+            
+            # 获取所有物体类型的名称列表 (path keys)
+            obj_paths = list(self.cfg.asset.object_files.keys())
+            num_types = len(obj_paths)
+            
+            # 遍历所有障碍物，寻找是否靠近箱子
+            for _obj_idx in range(self.cfg.asset.object_num):
+                _type_idx = _obj_idx % num_types
+                obj_path = obj_paths[_type_idx]
+                
+                # 只有当它是箱子时，我们才进行豁免检查
+                if "box" in obj_path.lower() or "Box" in obj_path:
+                    # 获取位置 (num_envs, 2) 只看XY平面
+                    box_pos = self.root_states_obj[_obj_idx][:, :2]
+                    robot_pos = self.root_states[:, :2]
+                    
+                    # 计算机器人和箱子的平面距离
+                    dist = torch.norm(robot_pos - box_pos, dim=-1)
+                    
+                    # 获取箱子的配置半径 (比如 0.4)
+                    box_radius = self.object_size_list[_type_idx]
+                    
+                    # 判定阈值：箱子半径 + 机器人身体半径(约0.3) + 缓冲余量(0.2)
+                    collision_threshold = box_radius + 0.5
+                    
+                    # 如果距离小于阈值，标记为“正在接触箱子”
+                    is_touching_box |= (dist < collision_threshold)
+            
+            # ★★★ 核心修改 ★★★
+            # 如果发生了碰撞(contact_reset=True)，但同时离箱子很近(is_touching_box=True)
+            # 我们强制把这次碰撞对应的 reset 设为 False (豁免/不重置)
+            contact_reset = contact_reset & (~is_touching_box)
+
+        # 3. 应用最终的重置逻辑
+        self.reset_buf = contact_reset
+        
+        # 处理超时重置 (Time Out)
+        self.time_out_buf = (self.timer_left <= 0)
         self.reset_buf |= self.time_out_buf
+
 
     def _resample_commands(self, env_ids):
         tbd_envs = env_ids.clone()
@@ -217,17 +271,25 @@ class LeggedRobotPos(LeggedRobot):
     def compute_observations(self):
         """ Computes observations
         """
+        # if self.cfg.asset.load_dynamic_object:
+        #     for _obj in range(self.cfg.asset.object_num):
+        #         obj_relpos = self.root_states_obj[_obj][:, 0:3] - self.root_states[:, 0:3]
+        #         self.obj_relpos[_obj][:] = quat_rotate_inverse(yaw_quat(self.base_quat[:]), obj_relpos)
+        # if self.cfg.sensors.ray2d.enable and self.cfg.asset.load_dynamic_object:
+        #     self.ray2d_obs[:] = 99999.9
+        #     for _obj in range(self.cfg.asset.object_num):
+        #         _obj_type = _obj % (len(self.object_asset_list))
+        #         _radius_obj = self.object_size_list[_obj_type]
+        #         this_ray2d_obs = circle_ray_query(self.ray2d_x0, self.ray2d_y0, self.ray2d_thetas, self.obj_relpos[_obj][:,:2], radius=_radius_obj, min_=self.ray2d_range[0], max_=self.ray2d_range[1])
+        #         self.ray2d_obs = torch.minimum(self.ray2d_obs, this_ray2d_obs) #ok 这里是计算出来的ray数值
+
+
         if self.cfg.asset.load_dynamic_object:
             for _obj in range(self.cfg.asset.object_num):
                 obj_relpos = self.root_states_obj[_obj][:, 0:3] - self.root_states[:, 0:3]
                 self.obj_relpos[_obj][:] = quat_rotate_inverse(yaw_quat(self.base_quat[:]), obj_relpos)
-        if self.cfg.sensors.ray2d.enable and self.cfg.asset.load_dynamic_object:
-            self.ray2d_obs[:] = 99999.9
-            for _obj in range(self.cfg.asset.object_num):
-                _obj_type = _obj % (len(self.object_asset_list))
-                _radius_obj = self.object_size_list[_obj_type]
-                this_ray2d_obs = circle_ray_query(self.ray2d_x0, self.ray2d_y0, self.ray2d_thetas, self.obj_relpos[_obj][:,:2], radius=_radius_obj, min_=self.ray2d_range[0], max_=self.ray2d_range[1])
-                self.ray2d_obs = torch.minimum(self.ray2d_obs, this_ray2d_obs)
+
+
 
         self.obs_buf = torch.cat((  self.contact_filt.float() * 2 - 1.0, # 0:4
                                     self.base_ang_vel  * self.obs_scales.ang_vel, # 4:7
@@ -239,17 +301,110 @@ class LeggedRobotPos(LeggedRobot):
                                     self.actions # 38:50
                                     ),dim=-1)  # append ray2d obs after this, 50:
         # add perceptive inputs if not blind
-        if self.cfg.sensors.ray2d.enable:
-            if self.add_noise and self.cfg.sensors.ray2d.illusion:
-                safe_tgt_dist = torch.norm(self.commands[:, :2], dim=-1).unsqueeze(1) + 0.35
-                hallu_ = self.ray2d_obs > safe_tgt_dist
-                self.ray2d_obs += hallu_ * torch.zeros_like(self.ray2d_obs).uniform_(0,1) * (safe_tgt_dist - self.ray2d_obs)
-            if self.cfg.sensors.ray2d.log2:
-                ray2d_ = torch.log2(self.ray2d_obs) * self.obs_scales.ray2d
-            else:
-                ray2d_ = self.ray2d_obs * self.obs_scales.ray2d
-            self.obs_buf = torch.cat((self.obs_buf, ray2d_), dim=-1)
+        # if self.cfg.sensors.ray2d.enable:
+        #     if self.add_noise and self.cfg.sensors.ray2d.illusion: #并不是完全不用真值，而是**“近处不骗，远处乱骗”**。这样做是为了防止机器人在空旷地带跑得太疯，强迫它时刻保持一种“可能有障碍物”的警惕感，从而极大地提高了 Sim-to-Real 的鲁棒性（毕竟真实雷达在远距离往往噪声很大或有盲区）。
+        #         safe_tgt_dist = torch.norm(self.commands[:, :2], dim=-1).unsqueeze(1) + 0.35
+        #         hallu_ = self.ray2d_obs > safe_tgt_dist
+        #         self.ray2d_obs += hallu_ * torch.zeros_like(self.ray2d_obs).uniform_(0,1) * (safe_tgt_dist - self.ray2d_obs)
+        #     if self.cfg.sensors.ray2d.log2:
+        #         ray2d_ = torch.log2(self.ray2d_obs) * self.obs_scales.ray2d
+        #     else:
+        #         ray2d_ = self.ray2d_obs * self.obs_scales.ray2d
+        #     self.obs_buf = torch.cat((self.obs_buf, ray2d_), dim=-1)
         # add noise if needed
+
+
+        if self.cfg.sensors.ray2d.enable and self.cfg.asset.load_dynamic_object:
+            self.ray2d_obs[:] = 99999.9 # 初始化为无穷远
+            
+            for _obj in range(self.cfg.asset.object_num):
+                _obj_type = _obj % (len(self.object_asset_list))
+                
+                # 1. 识别物体类型
+                # object_files 是字典，我们获取对应的路径字符串
+                obj_path = list(self.cfg.asset.object_files.keys())[_obj_type]
+                
+                # 2. 定义渗透率 (Permeability)
+                # 默认为 0 (不可穿透)
+                permeability = 0.0 
+                
+                # 如果是箱子 (Box)，我们认为它是泡沫做的，可以穿透
+                if "box" in obj_path.lower() or "Box" in obj_path:
+                    is_box = True
+                    permeability = 0.8  # 1.0 表示完全穿透（射线看不见它）
+                    # permeability = 0.8 # 或者你可以设为 0.8，表示射线能穿过去大部分，但稍微有点干扰
+                else:
+                    is_box = False
+                    permeability = 0.0  # 圆柱体，不可穿透
+                
+                # 3. 计算几何距离 (这一步算出物理真值)
+                if is_box:
+                    # 使用你之前添加的 box_ray_query (需要确保该函数已定义)
+                    # 如果没定义 box_ray_query，暂时用 circle 近似也可以，逻辑是一样的
+                    half_size = self.object_size_list[_obj_type]
+                    
+                    # 简单的相对位置计算 (假设箱子没有旋转，简化计算)
+                    # 如果需要精确旋转，请使用上一轮提供的完整 box_ray_query 调用代码
+                    target_pos = self.obj_relpos[_obj][:, :2]
+                    
+                    # 这里假设你已经有了 box_ray_query，如果还没加，就用 circle_ray_query 代替
+                    # 重点是后面的逻辑
+                    this_ray2d_obs = box_ray_query(
+                        self.ray2d_x0, self.ray2d_y0, 
+                        self.ray2d_thetas, 
+                        target_pos, 
+                        half_size, 
+                        torch.zeros((self.num_envs, 1), device=self.device), # 假设无旋转
+                        min_=self.ray2d_range[0], 
+                        max_=self.ray2d_range[1]
+                    )
+                else:
+                    # 圆柱体计算
+                    _radius_obj = self.object_size_list[_obj_type]
+                    this_ray2d_obs = circle_ray_query(
+                        self.ray2d_x0, self.ray2d_y0, 
+                        self.ray2d_thetas, 
+                        self.obj_relpos[_obj][:, :2], 
+                        radius=_radius_obj, 
+                        min_=self.ray2d_range[0], 
+                        max_=self.ray2d_range[1]
+                    )
+
+                # 4. 核心逻辑：根据渗透率决定是否更新射线
+                if permeability >= 1.0:
+                    # 【情况A：完全穿透】
+                    # 就像箱子是隐形的一样，完全不更新 ray2d_obs
+                    # 射线会继续向前走，直到碰到圆柱体或达到最大射程
+                    pass 
+                    
+                elif permeability > 0.0:
+                    # 【情况B：半透明/系数减少】
+                    # 比如：实际距离 2米，机器人感觉只有 2 + 5 = 7米 (这就变远了)
+                    # 或者直接让距离变大，让机器人觉得还很远
+                    
+                    # 这里我们用一个简单的逻辑：
+                    # 如果碰到了，我们让读数变大 (虚假的远距离)，鼓励机器人靠近
+                    fake_dist = this_ray2d_obs * (1.0 + permeability) 
+                    self.ray2d_obs = torch.minimum(self.ray2d_obs, fake_dist)
+                    
+                else:
+                    # 【情况C：不可穿透 (圆柱)】
+                    # 这是标准的 Lidar 逻辑：取最小值，挡住了就是挡住了
+                    self.ray2d_obs = torch.minimum(self.ray2d_obs, this_ray2d_obs)
+
+            if self.cfg.sensors.ray2d.enable:
+                if self.add_noise and self.cfg.sensors.ray2d.illusion: #并不是完全不用真值，而是**“近处不骗，远处乱骗”**。这样做是为了防止机器人在空旷地带跑得太疯，强迫它时刻保持一种“可能有障碍物”的警惕感，从而极大地提高了 Sim-to-Real 的鲁棒性（毕竟真实雷达在远距离往往噪声很大或有盲区）。
+                    safe_tgt_dist = torch.norm(self.commands[:, :2], dim=-1).unsqueeze(1) + 0.35
+                    hallu_ = self.ray2d_obs > safe_tgt_dist
+                    self.ray2d_obs += hallu_ * torch.zeros_like(self.ray2d_obs).uniform_(0,1) * (safe_tgt_dist - self.ray2d_obs)
+                if self.cfg.sensors.ray2d.log2:
+                    ray2d_ = torch.log2(self.ray2d_obs) * self.obs_scales.ray2d
+                else:
+                    ray2d_ = self.ray2d_obs * self.obs_scales.ray2d
+            self.obs_buf = torch.cat((self.obs_buf, ray2d_), dim=-1)
+
+
+
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
             # should I clip ray obs here after noise? maybe not.

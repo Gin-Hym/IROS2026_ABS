@@ -490,7 +490,7 @@ class LeggedRobot(BaseTask):
                     assert n_posset > 0
                     self.root_states_obj[_obj][env_ids, 0] = self.cfg.asset.test_obj_pos[env_ids%n_posset,0,_obj]  # to sample from tensor
                     self.root_states_obj[_obj][env_ids, 1] = self.cfg.asset.test_obj_pos[env_ids%n_posset,1,_obj]
-                self.root_states_obj[_obj][env_ids, 2] = 0.51
+                self.root_states_obj[_obj][env_ids, 2] = 0.31 #这里是添加障碍物的中心原点的Z
                 self.root_states_obj[_obj][env_ids, :2] += self.env_origins[env_ids,:2]
 
             env_ids_int32 = torch.cat([env_ids_int32 * (self.cfg.asset.object_num+1) + _actor for _actor in range(self.cfg.asset.object_num+1)], dim=0).to(dtype=torch.int32)
@@ -622,12 +622,20 @@ class LeggedRobot(BaseTask):
         if self.cfg.sensors.ray2d.enable:
             self.ray2d_x0 = torch.ones(self.num_envs, 1, device=self.device) * self.cfg.sensors.ray2d.x_0
             self.ray2d_y0 = torch.ones(self.num_envs, 1, device=self.device) * self.cfg.sensors.ray2d.y_0
-            self.ray2d_thetas = torch.arange(start=self.cfg.sensors.ray2d.theta_start, end=self.cfg.sensors.ray2d.theta_end, 
-                                                step=self.cfg.sensors.ray2d.theta_step, device=self.device).repeat(self.num_envs, 1)
+            self.azimuths = torch.arange(start=self.cfg.sensors.ray2d.theta_start, end=self.cfg.sensors.ray2d.theta_end, step=self.cfg.sensors.ray2d.theta_step, device=self.device)
+            self.elevations = torch.arange(start=self.cfg.sensors.ray2d.theta_up_start, end=self.cfg.sensors.ray2d.theta_up_end, step=self.cfg.sensors.ray2d.theta_up_step,  device=self.device)
+            grid_az, grid_el = torch.meshgrid(self.azimuths, self.elevations, indexing='xy')
+            self.ray_azimuths = grid_az.flatten().repeat(self.num_envs, 1)
+            self.ray_elevations = grid_el.flatten().repeat(self.num_envs, 1)
+            self.ray2d_obs = torch.zeros_like(self.ray_azimuths)
+            self.ray2d_range = (self.cfg.sensors.ray2d.min_dist, self.cfg.sensors.ray2d.max_dist)
+            self.ray2d_thetas = self.ray_azimuths
+            # self.ray2d_thetas = torch.arange(start=self.cfg.sensors.ray2d.theta_start, end=self.cfg.sensors.ray2d.theta_end, 
+            #                                     step=self.cfg.sensors.ray2d.theta_step, device=self.device).repeat(self.num_envs, 1)
             if self.cfg.sensors.ray2d.front_rear:
                 self.ray2d_thetas = wrap_to_pi(torch.cat([self.ray2d_thetas, self.ray2d_thetas + np.pi], dim=-1))
             self.ray2d_range = (self.cfg.sensors.ray2d.min_dist, self.cfg.sensors.ray2d.max_dist)
-            self.ray2d_obs = torch.zeros_like(self.ray2d_thetas)
+            # self.ray2d_obs = torch.zeros_like(self.ray2d_thetas)
 
         # joint positions offsets and PD gains
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)

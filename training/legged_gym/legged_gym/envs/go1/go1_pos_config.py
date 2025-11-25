@@ -34,7 +34,7 @@ import numpy as np
 
 class Go1PosRoughCfg( LeggedRobotPosCfg ):
     class env(LeggedRobotPosCfg.env):
-        num_observations = 61
+        num_observations =132 #91
         num_envs = 1280
         episode_length_s = 9 # episode length in seconds  # will be randomized in [s-minus, s]
 
@@ -64,7 +64,7 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
         class ranges:
             use_polar = False
             # if use polar: it is rho and theta, else x and y
-            pos_1 = [1.5, 7.5] # min max [m] 
+            pos_1 = [-5.5, 7.5] # min max [m] 
             pos_2 = [-2.0, 2.0]  # rad if polar
             heading = [-0.3, 0.3]  # a residual heading plus theta
 
@@ -88,11 +88,12 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
 
         load_dynamic_object = True
         object_files = {
-        # '{LEGGED_GYM_ROOT_DIR}/resources/objects/DiningChair/model.urdf': 0.4,
-        # '{LEGGED_GYM_ROOT_DIR}/resources/objects/OfficeChair/model.urdf': 0.4,
+        #  '{LEGGED_GYM_ROOT_DIR}/resources/objects/DiningChair/model.urdf': 0.4,
+        #  '{LEGGED_GYM_ROOT_DIR}/resources/objects/OfficeChair/model.urdf': 0.4,
+        '{LEGGED_GYM_ROOT_DIR}/resources/objects/Box/box.urdf': 0.3,
         '{LEGGED_GYM_ROOT_DIR}/resources/objects/cylindar.urdf': 0.4,
         }
-        object_num = 8
+        object_num = 18
         test_mode = False
         test_obj_pos = [] # to be overwritten with a 3d tensor
 
@@ -139,9 +140,15 @@ class Go1PosRoughCfg( LeggedRobotPosCfg ):
             log2 = True
             min_dist = 0.1
             max_dist = 6.0
-            theta_start = - np.pi/4
-            theta_end = np.pi/4 + 0.0001
+            ####
+            theta_up_start = 0.0
+            theta_up_end = -np.pi/4
+            theta_up_step = -np.pi/8
+            #######
+            theta_start = - np.pi/2
+            theta_end = 3*np.pi/2 + 0.0001 #计算射线数量的
             theta_step = np.pi/20
+            #####
             x_0 = -0.05
             y_0 = 0.0
             front_rear = False

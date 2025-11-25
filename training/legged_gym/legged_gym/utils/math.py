@@ -53,6 +53,74 @@ def circle_ray_query(x0: torch.Tensor, y0: torch.Tensor, thetas: torch.Tensor, c
     raydist = (check_dir > 0) * raydist + (check_dir<=0) * max_
     return raydist
 
+def box_ray_query(x0, y0, thetas, box_center, box_size, box_yaw, min_=0.1, max_=3.0):
+    """
+    计算射线与 2D 旋转矩形 (Box) 的交点距离
+    x0, y0: 机器人位置 (n, 1)
+    thetas: 射线角度 (n, t)
+    box_center: 箱子中心 (n, 2)
+    box_size: 箱子半长宽 [half_x, half_y] (float or tensor)
+    box_yaw: 箱子的旋转角 (n, 1)
+    """
+    # 1. 将射线转换到 Box 的局部坐标系 (Local Frame)
+    # 也就是把 Box 旋转回正方向 (yaw=0)，把射线起点和方向做反向旋转
+    dx = torch.cos(thetas)
+    dy = torch.sin(thetas)
+    
+    # 相对位置 (机器人 - 箱子)
+    rel_x = x0 - box_center[:, 0:1]
+    rel_y = y0 - box_center[:, 1:2]
+    
+    # 旋转矩阵 (反向旋转 -box_yaw)
+    c_yaw = torch.cos(-box_yaw)
+    s_yaw = torch.sin(-box_yaw)
+    
+    # 旋转后的起点 (Local Origin)
+    local_x0 = rel_x * c_yaw - rel_y * s_yaw
+    local_y0 = rel_x * s_yaw + rel_y * c_yaw
+    
+    # 旋转后的方向 (Local Direction)
+    local_dx = dx * c_yaw - dy * s_yaw
+    local_dy = dx * s_yaw + dy * c_yaw
+    
+    # 2. Slab 算法 (AABB Intersection)
+    # 加上微小量 eps 防止除以 0
+    eps = 1e-6
+    inv_dx = 1.0 / (local_dx + eps * torch.sign(local_dx))
+    inv_dy = 1.0 / (local_dy + eps * torch.sign(local_dy))
+    
+    # 假设 box_size 是半长 (half_size)
+    # 计算 X 轴方向的进入面和射出面
+    t1x = (-box_size - local_x0) * inv_dx
+    t2x = (box_size - local_x0) * inv_dx
+    t_min_x = torch.minimum(t1x, t2x)
+    t_max_x = torch.maximum(t1x, t2x)
+    
+    # 计算 Y 轴方向的进入面和射出面
+    t1y = (-box_size - local_y0) * inv_dy
+    t2y = (box_size - local_y0) * inv_dy
+    t_min_y = torch.minimum(t1y, t2y)
+    t_max_y = torch.maximum(t1y, t2y)
+    
+    # 3. 求交集
+    # 射线进入 Box 的时间是 X和Y方向较晚进入的那个
+    t_enter = torch.maximum(t_min_x, t_min_y)
+    # 射线离开 Box 的时间是 X和Y方向较早离开的那个
+    t_exit = torch.maximum(torch.minimum(t_max_x, t_max_y), torch.tensor(0.0, device=x0.device))
+    
+    # 4. 判断是否击中
+    # 条件：t_exit >= t_enter (有重叠) 且 t_exit > 0 (在前方)
+    hit = (t_exit >= t_enter) & (t_exit > 0)
+    
+    # t_enter 可能为负（如果机器人在箱子内部），此时距离应为 0 或 t_exit
+    dist = torch.where(t_enter > 0, t_enter, torch.zeros_like(t_enter))
+    
+    # 如果没击中，设为最大距离
+    final_dist = torch.where(hit, dist, torch.tensor(max_, device=x0.device))
+    
+    return final_dist.clip(min=min_, max=max_)
+
+
 def yaw_quat(quat: torch.Tensor) -> torch.Tensor:
     quat_yaw = quat.clone().view(-1, 4)
     qx = quat_yaw[:, 0]

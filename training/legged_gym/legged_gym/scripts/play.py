@@ -46,20 +46,20 @@ MOVE_CAMERA = False
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # overwrite some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
+    # env_cfg.env.num_envs = min(env_cfg.env.num_envs, 1)
     env_cfg.terrain.num_rows = 2
     env_cfg.terrain.num_cols = 2
     env_cfg.terrain.curriculum = False
     # env_cfg.terrain.mesh_type = "plane"
     env_cfg.noise.add_noise = False
-    env_cfg.domain_rand.randomize_friction = False
+    # env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = True
     env_cfg.domain_rand.max_push_vel_xy = 0.0
     env_cfg.domain_rand.randomize_dof_bias = False
-    env_cfg.domain_rand.erfi = False
-    env_cfg.domain_rand.randomize_base_mass = True
-    env_cfg.domain_rand.added_mass_range = [0, 0]
-    env_cfg.domain_rand.randomize_timer_minus = 0.0
+    env_cfg.domain_rand.erfi = True
+    # env_cfg.domain_rand.randomize_base_mass = True
+    # env_cfg.domain_rand.added_mass_range = [0, 0]
+    # env_cfg.domain_rand.randomize_timer_minus = 0.0
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)

@@ -121,7 +121,7 @@ class LeggedRobotCfg(BaseConfig):
 
     class sensors:
         class ray2d:
-            enable = False
+            enable = True
 
     class domain_rand:
         randomize_friction = True
@@ -236,7 +236,7 @@ class LeggedRobotCfgPPO(BaseConfig):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 48 # per iteration
-        max_iterations = 6000 # number of policy updates
+        max_iterations = 10000 # number of policy updates
 
         # logging
         save_interval = 200 # check for potential saves every this many iterations
